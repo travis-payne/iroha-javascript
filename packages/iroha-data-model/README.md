@@ -1,44 +1,53 @@
-# @iroha/data-model
+# @iroha2/data-model
 
-This package contains generated types and definitions of Iroha Data Model.
+Generated SCALE-definitions for Iroha Data Model
+
+## Installation
+
+Configure your package manager to fetch scoped packages from nexus. Example for `npm`/`pnpm` - file `.npmrc`:
+
+```ini
+# .npmrc
+@iroha2:registry=https://nexus.iroha.tech/repository/npm-group/
+```
+
+Then, install packages: 
+
+```sh
+npm i @iroha2/data-model jsbi
+```
+
+> `jsbi` is a peer dependency of `@scale-codec/*` packages
 
 ### Usage
 
-> This package exposes raw typescript code so transpilation and launch is delegated to upstream packages.
-
 ```ts
-import {
-    // import any type or interface that you need
-    Id,
-    PublicKey,
-    Hash,
-    Account,
+import { irohaCodec, IrohaDataModel } from '@iroha2/data-model`
 
-    // definitions for TypeRegistry
-    runtimeDefinitions,
+const assetDefinitionId: IrohaDataModel['iroha_data_model::asset::DefinitionId'] = {
+    name: 'Alice',
+    domainName: 'Wonderland'
+};
 
-    // Types summary of `runtimeDefininitions` to use it with helpers,
-    IrohaDslConstructorDef,
-} from '@iroha/data-model';
-
-import { TypeRegistry, DEFAULT_CODECS, createHelpers } from '@iroha/scale-codec-legacy';
-
-const registry = new TypeRegistry();
-registry.register(DEFAULT_CODECS);
-registry.register(runtimeDefinitions);
-
-const helpers = createHelpers<
-    // this is necessary
-    typeof DEFAULT_CODECS & IrohaDslConstructorDef
->({ runtime: registry });
+const encoded = irohaCodec.encode('iroha_data_model::asset::DefinitionId', assedDefinitionId);
+const decoded = irohaCodec.decode('iroha_data_model::asset::DefinitionId', encoded);
 ```
 
 ### Regenerate schema
 
-To regenerate schema with new JSON-data from Rust code, put new data to `./src/input.json` and run:
+Source data for generation - `input/input.json`. You can update it manually, or automatically with command:
 
-```ts
+```
+# Install
+pnpm update-json
+```
+
+**This script requires Rust and Cargo installed!**
+
+Then you could regenerate namespace definition with command:
+
+```
 pnpm gen
 ```
 
-After this `./src/types.ts` and `./src/definitions.json` will be updated. You should commit changes after all.
+After this, check newly generated `src/generated.ts` file and prettify it. That's all.

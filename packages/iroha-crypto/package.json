@@ -1,24 +1,27 @@
 {
-    "name": "@iroha/crypto",
+    "name": "@iroha2/crypto",
     "version": "0.1.0",
+    "module": "lib.js",
+    "main": "lib.js",
+    "types": "lib.d.ts",
+    "files": [
+        "wasm",
+        "lib.js",
+        "lib.d.ts"
+    ],
+    "license": "Apache 2.0",
     "scripts": {
-        "build:wasm": "pnpm build:wasm-web && pnpm build:wasm-node",
-        "build:wasm-web": "wasm-pack build -d pkg-web -t web ./ursa-wasm",
-        "build:wasm-node": "wasm-pack build -d pkg-node -t nodejs ./ursa-wasm"
+        "build-wasm": "esno scripts/build-wasm",
+        "test": "esno scripts/test"
     },
     "devDependencies": {
-        "@iroha/eslint-config": "workspace:^0.1.0",
-        "@iroha/prettier-config": "workspace:^0.1.0",
-        "eslint": "^7.27.0",
-        "prettier": "^2.3.0",
-        "prettier-eslint": "^12.0.0",
-        "typescript": "^4.3.2",
-        "vite": "^2.3.6"
+        "concurrently": "^6.2.0",
+        "consola": "^2.15.3",
+        "del": "^6.0.0",
+        "execa": "^5.1.1",
+        "make-dir": "^3.1.0"
     },
-    "prettier": "@iroha/prettier-config",
-    "eslintConfig": {
-        "extends": [
-            "@iroha/eslint-config"
-        ]
+    "dependencies": {
+        "esno": "^0.8.0"
     }
 }

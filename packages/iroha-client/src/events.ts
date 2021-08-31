@@ -1,74 +1,64 @@
-import { EventFilter, Event as WebsocketEvent } from '@iroha/data-model';
+import { Enum, IrohaDataModel, irohaCodec } from '@iroha2/data-model';
 import Emittery from 'emittery';
 import WebSocket, { CloseEvent, ErrorEvent } from 'ws';
-import { CreateScaleFactory } from '@iroha/scale-codec-legacy';
-import { AllRuntimeDefinitions } from './dsl';
 
-interface Message<T> {
-    version: '1';
-    content: T;
+export interface EventsEmitteryMap {
+    close: CloseEvent;
+    error: ErrorEvent;
+    accepted: undefined;
+    event: IrohaDataModel['iroha_data_model::events::Event'];
 }
 
-export interface IrohaEventsAPIParams {
-    createScale: CreateScaleFactory<AllRuntimeDefinitions>;
-    eventFilter: EventFilter;
-    baseURL: string;
-
-    /**
-     * Event listeners
-     */
-    on: IrohaEventsAPIListeners;
+export interface SetupEventsParams {
+    toriiURL: string;
+    filter: IrohaDataModel['iroha_data_model::events::EventFilter'];
 }
 
-export interface IrohaEventsAPIListeners {
-    /**
-     * When connection is closed
-     */
-    close?: (e: CloseEvent) => void;
-
-    /**
-     * When some socket error occured
-     */
-    error?: (err: ErrorEvent) => void;
-
-    /**
-     * When socket connected and handshake acquired
-     */
-    ready?: () => void;
-
-    /**
-     * Main callback with event payload
-     */
-    event: (event: WebsocketEvent) => void;
-}
-
-export interface IrohaEventAPIReturn {
+export interface SetupEventsReturn {
     close: () => void;
+    ee: Emittery<EventsEmitteryMap>;
 }
 
 /**
  * Promise resolved when connection handshake is acquired
  */
-export async function setupEventsWebsocketConnection(params: IrohaEventsAPIParams): Promise<IrohaEventAPIReturn> {
+export async function setupEventsWebsocketConnection(params: SetupEventsParams): Promise<SetupEventsReturn> {
+    const eeExternal = new Emittery<EventsEmitteryMap>();
+
     const ee = new Emittery<{
         error: ErrorEvent;
         close: CloseEvent;
         subscription_accepted: undefined;
-        event: WebsocketEvent;
+        event: IrohaDataModel['iroha_data_model::events::Event'];
     }>();
 
-    ee.on('close', (e) => params.on.close?.(e));
-    ee.on('error', (e) => params.on.error?.(e));
-    ee.on('event', (event) => params.on.event(event));
-    ee.on('subscription_accepted', () => params.on.ready?.());
+    ee.on('close', (e) => eeExternal.emit('close', e));
+    ee.on('error', (e) => eeExternal.emit('error', e));
+    ee.on('event', (e) => eeExternal.emit('event', e));
+    ee.on('subscription_accepted', () => eeExternal.emit('accepted'));
 
-    const socket = new WebSocket(`${params.baseURL}/events`);
+    const socket = new WebSocket(`${params.toriiURL}/events`);
 
-    function close() {
+    socket.onopen = () => {
+        sendMessage(Enum.create('SubscriptionRequest', [params.filter]));
+    };
+
+    socket.onclose = (event) => {
+        ee.emit('close', event);
+    };
+
+    socket.onerror = (err) => {
+        ee.emit('error', err);
+    };
+
+    async function close(): Promise<void> {
+        if (socket.readyState === socket.CLOSED) return;
+
         // At the moment Iroha does not support gracefull connection closing, so
         // forced termination
-        // Iroha issue: https://jira.hyperledger.org/browse/IR-1174
+        // Iroha issue: https://github.com/hyperledger/iroha/issues/1195
         socket.terminate();
+        return ee.once('close').then(() => {});
 
         // let closed = false;
 
@@ -86,78 +76,50 @@ export async function setupEventsWebsocketConnection(params: IrohaEventsAPIParam
         // }, 1000);
     }
 
-    function sendMessage(content: any) {
-        const msg: Message<any> = {
-            version: '1',
-            content,
-        };
-
-        socket.send(JSON.stringify(msg));
+    function sendMessage(msg: IrohaDataModel['iroha_data_model::events::EventSocketMessage']) {
+        const encoded = irohaCodec.encode(
+            'iroha_data_model::events::VersionedEventSocketMessage',
+            Enum.create('V1', [msg]),
+        );
+        socket.send(encoded);
     }
-
-    socket.onopen = () => {
-        // Sending handshake message
-        sendMessage({
-            SubscriptionRequest: params.eventFilter.toHuman(),
-        });
-    };
-
-    socket.onclose = (event) => {
-        ee.emit('close', event);
-    };
-
-    socket.onerror = (err) => {
-        ee.emit('error', err);
-    };
 
     let listeningForSubscriptionAccepted = false;
 
     socket.onmessage = ({ data }) => {
-        if (typeof data !== 'string') {
-            console.error('unknown data:', data);
-            return;
+        if (typeof data === 'string') {
+            console.error(data);
+            throw new Error('Unexpected string data');
+        }
+        if (Array.isArray(data)) {
+            console.error(data);
+            throw new Error('Unexpected array data');
         }
 
-        const {
-            content,
-        }: Message<
-            | 'SubscriptionAccepted'
-            | {
-                  Event: any;
-              }
-        > = JSON.parse(data);
+        const event = irohaCodec
+            .decode('iroha_data_model::events::VersionedEventSocketMessage', new Uint8Array(data))
+            .as('V1')[0];
 
-        if (content === 'SubscriptionAccepted') {
+        if (event.is('SubscriptionAccepted')) {
             if (!listeningForSubscriptionAccepted) throw new Error('No callback!');
             ee.emit('subscription_accepted');
         } else {
-            const event = params.createScale('Event', content.Event);
-
-            ee.emit('event', event);
-
-            sendMessage('EventReceived');
+            ee.emit('event', event.as('Event'));
+            sendMessage(Enum.create('EventReceived'));
         }
     };
 
     await new Promise<void>((resolve, reject) => {
-        const unsubs = [
-            ee.on('subscription_accepted', () => {
-                stopAll();
-                resolve();
-            }),
-            ee.on('close', () => {
-                reject(new Error('Handshake acquiring failed - connected closed'));
-            }),
-        ];
-
-        function stopAll() {
-            unsubs.forEach((x) => x());
-        }
+        ee.once('subscription_accepted').then(resolve);
+        ee.once('close').then(() => {
+            reject(new Error('Handshake acquiring failed - connected closed'));
+        });
 
         listeningForSubscriptionAccepted = true;
     });
 
     return {
         close,
+        ee: eeExternal,
     };
 }

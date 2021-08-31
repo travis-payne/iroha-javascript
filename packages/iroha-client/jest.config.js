@@ -1,10 +1,20 @@
-module.exports = {
-    preset: 'ts-jest',
-    testEnvironment: 'node',
-    globals: {
-        'ts-jest': {
-            diagnostics: false,
-        },
+/** @type {import('@jest/types').Config.InitialOptions} */
+const config = {
+    transform: {
+        '^.+\\.(ts|js)$': [
+            'esbuild-jest',
+            {
+                sourcemap: true,
+            },
+        ],
     },
-    // transformIgnorePatterns: ['node_modules/(?!(.+hex-my-bytes)/)'],
+    testEnvironment: 'node',
+    testMatch: ['**/test/integration/tests/**/*.ts'],
+    testPathIgnorePatterns: ['/node_modules/', '/dist/'],
+    modulePathIgnorePatterns: ['/dist/'],
+    moduleNameMapper: {
+        '^@iroha2/data-model': '<rootDir>/../iroha-data-model/src/lib.ts',
+    },
 };
+
+module.exports = config;

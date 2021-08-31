@@ -1,140 +1,160 @@
-# @iroha/client
+# @iroha2/client
 
-### Instruction example (browser)
+Client for Iroha 2.
+
+## Installation
+
+Configure your package manager to fetch scoped packages from nexus. Example for `npm`/`pnpm` - file `.npmrc`:
+
+```ini
+# .npmrc
+@iroha2:registry=https://nexus.iroha.tech/repository/npm-group/
+```
+
+Then, install packages: 
+
+```sh
+npm i @iroha2/client @iroha2/crypto @iroha2/data-model jsbi
+```
+
+> `jsbi` is a peer dependency of `@scale-codec/*` packages
+
+## Usage
+
+### Client creation
 
 ```ts
-import { IrohaClient } from '@iroha/client';
-import init, { create_blake2b_32_hash, sign_with_ed25519_sha512 } from '@iroha/crypto/esm';
+import { createClient, IrohaDataModel } from '@iroha2/client';
+import { KeyPair } from '@iroha2/crypto';
 
-const client = new IrohaClient({
-    publicKey: {
-        digest: 'ed0120',
-        hex: 'e555d194e8822da35ac541ce9eec8b45058f4d294d9426ef97ba92698766f7d3',
-    },
-    privateKey: {
-        digest: 'ed25519',
-        hex: 'de757bcb79f4c63e8fa0795edc26f86dfdba189b846e903d0b732bb644607720e555d194e8822da35ac541ce9eec8b45058f4d294d9426ef97ba92698766f7d3',
-    },
-    baseUrl: 'http://localhost:3000',
-    account: {
-        name: 'alice',
-        domainName: 'wonderland',
-    },
-    hasher: create_blake2b_32_hash,
-    signer: sign_with_ed25519_sha512,
-});
+// you create KeyPair in some way
+const keyPair: KeyPair = /* ... */;
 
-const { createScale } = client;
+const client = createClient({
+    toriiURL: 'http://localhost:8080'
+})
 
-(async function () {
-    // This item can be removed in node.js (with the import, of course)
-    await init();
+// use it!
 
-    const normal_account_id = createScale('AccountId');
+const payload: IrohaDataModel['iroha_data_model::transaction::Payload'] = {
+    /* ... */
+}
 
-    const createAccountInstruction = createScale('Instruction', {
-        Register: {
-            object: {
-                expression: {
-                    Raw: {
-                        Identifiable: {
-                            NewAccount: {
-                                id: normal_account_id,
-                            },
-                        },
+await client.submitTransaction({
+    payload,
+    signing: keyPair
+})
+```
+
+### Submit transaction
+
+Let's add new account:
+
+```ts
+import { IrohaDataModel, Enum } from '@iroha2/client';
+import JSBI from 'jsbi';
+
+const newAccountId: IrohaDataModel['iroha_data_model::account::Id'] = {
+    name: 'bob',
+    domainName: 'wonderland',
+};
+
+const registerBox: IrohaDataModel['iroha_data_model::isi::RegisterBox'] = {
+    object: {
+        expression: Enum.create(
+            'Raw',
+            Enum.create(
+                'Identifiable',
+                Enum.create('NewAccount', {
+                    id: newAccountId,
+                    signatories: [],
+                    metadata: {
+                        map: new Map(),
                     },
-                },
-            },
-        },
-    });
-
-    await client.submitInstruction(createAccountInstruction);
-})();
-```
-
-### Query example (node)
-
-```ts
-import { create_blake2b_32_hash, sign_with_ed25519_sha512 } from '@iroha/crypto/common';
-import { IrohaClient } from '@iroha/client';
-
-const client = new IrohaClient({
-    publicKey: {
-        digest: 'ed0120',
-        hex: 'e555d194e8822da35ac541ce9eec8b45058f4d294d9426ef97ba92698766f7d3',
+                }),
+            ),
+        ),
     },
-    privateKey: {
-        digest: 'ed25519',
-        hex: 'de757bcb79f4c63e8fa0795edc26f86dfdba189b846e903d0b732bb644607720e555d194e8822da35ac541ce9eec8b45058f4d294d9426ef97ba92698766f7d3',
-    },
-    baseUrl: 'http://localhost:8080',
-    account: {
+};
+
+const payload: IrohaDataModel['iroha_data_model::transaction::Payload'] = {
+    instructions: [item],
+    timeToLiveMs: JSBI.BigInt(100_000),
+    creationTime: JSBI.BigInt(Date.now()),
+    metadata: new Map(),
+    accountId: {
         name: 'alice',
         domainName: 'wonderland',
     },
-    hasher: create_blake2b_32_hash,
-    signer: sign_with_ed25519_sha512,
+};
+
+// Submitting transaction
+await client.submitTransaction({
+    payload,
+    signing: keyPair,
 });
-
-(async function () {
-    const result = await client.request(
-        client.createScale('QueryBox', {
-            FindAllAccounts: {},
-        }),
-    );
-
-    for (const i of result.asVec) {
-        const {
-            id: { domainName, name },
-        } = i.asIdentifiable.asAccount;
-
-        console.log('Account: %s -> %s', domainName.toString(), name.toString());
-    }
-})();
 ```
 
-Output:
+### Make query
 
-```
-Account: genesis -> genesis
-Account: wonderland -> alice
-```
-
-### Events example (node)
+Let's find all of existing accounts and extract from them their IDs:
 
 ```ts
-import { create_blake2b_32_hash, sign_with_ed25519_sha512 } from '@iroha/crypto/common';
-import { IrohaClient } from '@iroha/client';
-import keys from '../config/keys';
+import { IrohaDataModel, Enum } from '@iroha2/client';
+import JSBI from 'jsbi';
 
-const client = new IrohaClient({
-    ...keys,
-    baseUrl: 'http://localhost:8080',
-    account: {
-        name: 'alice',
-        domainName: 'wonderland',
-    },
-    hasher: create_blake2b_32_hash,
-    signer: sign_with_ed25519_sha512,
+const query: IrohaDataModel['iroha_data_model::query::QueryBox'] = Enum.create('FindAllAccounts', {});
+
+const payload: IrohaDataModel['iroha_data_model::query::Payload'] = {
+    query,
+    accountId: client_config.account,
+    timestampMs: JSBI.BigInt(Date.now()),
+};
+
+// Making query
+const result = await client.makeQuery({
+    payload,
+    signing: keyPair,
 });
 
-(async function () {
-    const { close } = await client.listenToEvents({
-        eventFilter: client.createScale('EventFilter', {
-            Pipeline: {},
-        }),
-        on: {
-            event: (event) => {
-                console.log('Yay!', event.toHuman());
-            },
+const existingAccounts: IrohaDataModel['iroha_data_model::account::Id'][] = result
+    .as('Ok')
+    .as('Vec')
+    .map((val) => val.as('Identifiable').as('Account').id);
+
+console.log('IDs of existing accounts:', existingAccounts);
+```
+
+### Listen for events
+
+Let's listen for any committed transactions:
+
+```ts
+import { Enum, IrohaDataModel } from '@iroha2/client';
+
+const pipelineFilter: IrohaDataModel['iroha_data_model::events::pipeline::EventFilter'] = {
+    entity: Enum.create('Some', Enum.create('Transaction')),
+    hash: Enum.create('None'),
+};
+const filter: IrohaDataModel['iroha_data_model::events::EventFilter'] = Enum.create('Pipeline', pipelineFilter);
+
+// Setting up WebSocket connection
+// `await` here for final connection establishment
+// `ee` is an instance of Emmittery, a convenient event-emitter library
+// `close` is for connection closing
+const { ee, close } = await client.listenForEvents({ filter });
+
+ee.on('event', (event) => {
+    event.match({
+        Pipeline({ entityType, status }) {
+            if (entityType.is('Transaction') && status.is('Committed')) {
+                console.log('New transaction has been committed!');
+            }
         },
+        Data() {},
     });
-
-    // wait 20 sec and close connection
-    await new Promise<void>((r) => setTimeout(r, 20_000));
-
-    close();
-})().catch((err) => {
-    console.error(err);
 });
+
+// Close connection after 10 seconds, for example
+setTimeout(close, 10_000);
 ```
